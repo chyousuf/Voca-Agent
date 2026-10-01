@@ -1,0 +1,19 @@
+services:
+  agent:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      VOCA_BIND: 0.0.0.0
+      VOCA_DB: /app/data/voca.sqlite
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - voca-data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8787/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+volumes:
+  voca-data:

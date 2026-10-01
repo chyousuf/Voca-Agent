@@ -1,0 +1,16 @@
+{% if block.settings.service_url != blank and block.settings.site_id != blank %}
+  {% assign voca_service = block.settings.service_url | strip %}
+  {% assign voca_last = voca_service | slice: -1, 1 %}
+  {% if voca_last == '/' %}{% assign voca_service = voca_service | remove_last: '/' %}{% endif %}
+  <script defer src="{{ voca_service | escape }}/widget/v2/widget.js" data-voca-api="{{ voca_service | escape }}" data-voca-site="{{ block.settings.site_id | escape }}"></script>
+{% endif %}
+{% schema %}
+{
+  "name": "Voca voice & text guide",
+  "target": "body",
+  "settings": [
+    { "type": "text", "id": "service_url", "label": "Agent service address", "info": "Your Voca HTTPS service origin, for example https://agent.example.com. Do not enter API keys." },
+    { "type": "text", "id": "site_id", "label": "Website ID", "info": "Copy the public website ID from your Voca dashboard." }
+  ]
+}
+{% endschema %}

@@ -1,0 +1,22 @@
+# Fill these values from your Shopify Dev Dashboard before deployment.
+client_id = "REPLACE_WITH_SHOPIFY_CLIENT_ID"
+name = "Voca Website Agent"
+application_url = "https://agent.example.com/admin"
+embedded = false
+
+[access_scopes]
+scopes = "read_products,read_content"
+
+[auth]
+redirect_urls = ["https://agent.example.com/oauth/shopify/callback"]
+
+[webhooks]
+api_version = "2026-10"
+
+[[webhooks.subscriptions]]
+topics = ["products/create", "products/update", "products/delete", "collections/create", "collections/update", "collections/delete", "app/uninstalled"]
+uri = "/webhooks/shopify"
+
+[[webhooks.subscriptions]]
+compliance_topics = ["customers/data_request", "customers/redact", "shop/redact"]
+uri = "/webhooks/shopify"

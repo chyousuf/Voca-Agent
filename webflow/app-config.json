@@ -1,0 +1,19 @@
+{
+  "name": "Voca Website Agent",
+  "type": "data-client",
+  "redirectUri": "https://agent.example.com/oauth/webflow/callback",
+  "scopes": ["sites:read", "custom_code:read", "custom_code:write", "sites:write"],
+  "dashboard": "https://agent.example.com/admin",
+  "widget": {
+    "version": "1.1.0",
+    "hostedLocation": "https://agent.example.com/widget/v2/widget.js",
+    "install": "OAuth app registers an integrity-checked script and applies it in the site footer.",
+    "publishRequired": true
+  },
+  "refresh": {
+    "intervalSeconds": 21600,
+    "optionalWebhook": "https://agent.example.com/webhooks/webflow",
+    "event": "site_publish"
+  },
+  "note": "Registration worksheet, not an importable or approved Webflow marketplace manifest. Register the Data Client App in Webflow and enter these settings."
+}

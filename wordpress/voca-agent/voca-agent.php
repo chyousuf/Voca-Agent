@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Voca Website AI Agent
  * Description: Automatically sync published WordPress and WooCommerce content to your Voca AI service and add a multilingual voice/text guide.
- * Version: 1.1.0
+ * Version: 1.1.1
  * Requires at least: 6.2
  * Requires PHP: 7.4
  * Author: Voca

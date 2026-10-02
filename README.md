@@ -32,6 +32,8 @@ For a public website, deploy the service on HTTPS and install its platform integ
 
 “Website content” means published content intended for visitors. Orders, customer accounts, form submissions, drafts and private pages are not imported. WordPress password-protected posts and hidden WooCommerce products are excluded. Crawler imports respect robots.txt and noindex. PDFs, image OCR, video transcription, login-gated data, JavaScript-only content and arbitrary private CMS fields need dedicated importers. WordPress shortcodes are stripped rather than executed. Elementor text is read from a defined list of text-bearing fields; dynamically generated content may need another importer.
 
+In the dashboard, owners can see each indexed page’s last successful indexing time, identify stale content, retry a full sync, and exclude or restore a page. Exclusions persist across syncs. The WordPress plugin fetches the exclusion list before each batch and pauses sync if it cannot verify that list.
+
 The default crawl cap is 300 pages, reported in the dashboard when reached. Increase `VOCA_MAX_PAGES` for a larger published site. Partial crawls retain existing content rather than silently pruning an incomplete snapshot. Shopify API records have their own authoritative reconciliation so unpublished or removed API content is retired even if the HTML crawl is partial.
 
 ## Install the shared service

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Voca Website AI Agent
  * Description: Automatically sync published WordPress and WooCommerce content to your Voca AI service and add a multilingual voice/text guide.
- * Version: 1.1.1
+ * Version: 1.2.0
  * Requires at least: 6.2
  * Requires PHP: 7.4
  * Author: Voca
@@ -133,15 +133,27 @@ final class Voca_Agent {
         return wp_remote_retrieve_response_code($response) === 202;
     }
     private static function report($message) { update_option(self::REPORT, array('message'=>$message,'updated'=>time()), false); }
+    private static function excluded_documents() {
+        $s = self::settings();
+        $response = self::remote('GET', $s['service'] . '/api/plugin/exclusions?site=' . rawurlencode($s['site']), array('timeout'=>15,'headers'=>array('Authorization'=>'Bearer ' . $s['key'])));
+        if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200) { return false; }
+        $body = json_decode(wp_remote_retrieve_body($response), true);
+        return is_array($body) && isset($body['documents']) && is_array($body['documents']) ? $body['documents'] : false;
+    }
     public static function start_sync() {
         if (!self::configured()) { return; }
         if (get_transient('voca_agent_batch_lock')) { wp_schedule_single_event(time()+40, 'voca_agent_start_sync'); return; }
         $previous = get_option(self::STATE, array());
         if (!empty($previous['run'])) { self::send(array('run_id'=>$previous['run'],'documents'=>array(),'abort'=>true)); }
+        $excluded = self::excluded_documents();
+        if ($excluded === false) {
+            self::report('Could not load excluded pages from Voca. Sync is paused to avoid sending excluded page content. It will retry automatically.');
+            wp_schedule_single_event(time()+300, 'voca_agent_start_sync'); return;
+        }
         $types = get_post_types(array('public'=>true), 'names');
         $types = array_values(array_diff($types, array('attachment')));
         // Persist a numeric cursor only; loading every post ID at once can exhaust PHP memory on large sites.
-        $state = array('run'=>str_replace('-', '', wp_generate_uuid4()),'offset'=>0,'sent'=>0,'restart'=>false,'retry'=>0);
+        $state = array('run'=>str_replace('-', '', wp_generate_uuid4()),'offset'=>0,'sent'=>0,'restart'=>false,'retry'=>0,'excluded'=>$excluded);
         update_option(self::STATE, $state, false); self::report('Import queued. Published content is being sent in small batches.');
         wp_clear_scheduled_hook('voca_agent_batch'); wp_schedule_single_event(time()+1, 'voca_agent_batch');
     }
@@ -191,7 +203,10 @@ final class Voca_Agent {
             }
             $types = array_values(array_diff(get_post_types(array('public'=>true), 'names'), array('attachment')));
             $ids = get_posts(array('post_type'=>$types,'post_status'=>'publish','posts_per_page'=>10,'offset'=>$state['offset'],'fields'=>'ids','orderby'=>'ID','order'=>'ASC','has_password'=>false,'suppress_filters'=>false));
-            foreach ($ids as $id) { $doc = self::export_post($id); if ($doc) { $docs[] = $doc; } }
+            foreach ($ids as $id) {
+                if (in_array('wp:' . $id, $state['excluded'], true)) { continue; }
+                $doc = self::export_post($id); if ($doc) { $docs[] = $doc; }
+            }
             $next = $state['offset'] + count($ids); $final = count($ids) < 10;
             $fresh = get_option(self::STATE, array());
             if (!empty($fresh['restart']) || $fresh['run'] !== $state['run']) { self::start_sync_after_batch(); return; }

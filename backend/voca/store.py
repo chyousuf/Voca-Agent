@@ -25,6 +25,9 @@ class Store:
               site_id TEXT, id TEXT, url TEXT, title TEXT, text TEXT, kind TEXT,
               hash TEXT, updated REAL, PRIMARY KEY(site_id,id),
               FOREIGN KEY(site_id) REFERENCES sites(id) ON DELETE CASCADE);
+            CREATE TABLE IF NOT EXISTS document_exclusions (
+              site_id TEXT, doc_id TEXT, url TEXT, title TEXT, kind TEXT, excluded REAL,
+              PRIMARY KEY(site_id,doc_id), FOREIGN KEY(site_id) REFERENCES sites(id) ON DELETE CASCADE);
             CREATE TABLE IF NOT EXISTS chunks (
               site_id TEXT, doc_id TEXT, position INTEGER, text TEXT, embedding TEXT,
               model TEXT, PRIMARY KEY(site_id,doc_id,position),
@@ -151,10 +154,52 @@ class Store:
         result['text'] = result['text'][:20000]
         return result
 
+    def exclude_document(self, site_id, doc_id):
+        self.get_site(site_id)
+        if not isinstance(doc_id,str) or not doc_id or len(doc_id)>300:
+            raise Problem('Choose a valid page to exclude.')
+        with self.db() as c:
+            row=c.execute('SELECT url,title,kind FROM documents WHERE site_id=? AND id=?',(site_id,doc_id)).fetchone()
+            if not row:
+                raise Problem('Page not found in this website index.',404)
+            c.execute('INSERT INTO document_exclusions VALUES(?,?,?,?,?,?) ON CONFLICT(site_id,doc_id) DO UPDATE SET url=excluded.url,title=excluded.title,kind=excluded.kind,excluded=excluded.excluded',
+                      (site_id,doc_id,row['url'],row['title'],row['kind'],time.time()))
+            c.execute('DELETE FROM documents WHERE site_id=? AND id=?',(site_id,doc_id))
+            c.execute('DELETE FROM snapshots WHERE site_id=? AND doc_id=?',(site_id,doc_id))
+            # Remove this page from queued imports too; running imports re-check exclusions before saving.
+            jobs=c.execute("SELECT id,payload FROM jobs WHERE site_id=? AND kind='ingest' AND status='queued'",(site_id,)).fetchall()
+            for job in jobs:
+                payload=json.loads(job['payload'])
+                docs=[d for d in payload.get('documents',[]) if d.get('id')!=doc_id]
+                if len(docs)!=len(payload.get('documents',[])):
+                    payload['documents']=docs
+                    c.execute('UPDATE jobs SET payload=? WHERE id=?',(json.dumps(payload),job['id']))
+
+    def include_document(self, site_id, doc_id):
+        self.get_site(site_id)
+        with self.db() as c:
+            row=c.execute('SELECT url,title,kind FROM document_exclusions WHERE site_id=? AND doc_id=?',(site_id,doc_id)).fetchone()
+            if not row:
+                raise Problem('Excluded page not found.',404)
+            c.execute('DELETE FROM document_exclusions WHERE site_id=? AND doc_id=?',(site_id,doc_id))
+        return {'id':doc_id,**dict(row)}
+
+    def excluded_documents(self, site_id):
+        self.get_site(site_id)
+        with self.db() as c:
+            return [dict(r) for r in c.execute('SELECT doc_id AS id,url,title,kind,excluded FROM document_exclusions WHERE site_id=? ORDER BY title',(site_id,))]
+
+    def filter_excluded(self, site_id, docs):
+        with self.db() as c:
+            blocked={r[0] for r in c.execute('SELECT doc_id FROM document_exclusions WHERE site_id=?',(site_id,))}
+        return [d for d in docs if d['id'] not in blocked]
+
     def save_documents(self, site_id, prepared, replace=False, kinds=None, deleted=None, authoritative_prefix=None):
         """Embeddings are prepared first; failed jobs never prune or partially replace a snapshot."""
         now = time.time()
         with self.db() as c:
+            blocked={r[0] for r in c.execute('SELECT doc_id FROM document_exclusions WHERE site_id=?',(site_id,))}
+            prepared=[(doc,sections) for doc,sections in prepared if doc['id'] not in blocked]
             for doc, sections in prepared:
                 c.execute('INSERT INTO documents VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(site_id,id) DO UPDATE SET url=excluded.url,title=excluded.title,text=excluded.text,kind=excluded.kind,hash=excluded.hash,updated=excluded.updated',
                           (site_id, doc['id'], doc['url'], doc['title'], doc['text'], doc.get('kind','page'), fingerprint(doc), now))

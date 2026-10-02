@@ -44,6 +44,8 @@ class Worker:
             else:
                 raise Problem('WordPress content sync is managed by the installed plugin.')
             docs = validate_documents(site,docs)
+            received=len(docs)
+            docs = self.store.filter_excluded(site['id'],docs)
             partial = report.get('limit_reached') or report.get('errors') or report.get('partial')
             self.store.retire_documents(site['id'],docs,replace=not partial,
                 authoritative_prefix='gid://shopify/' if site['platform']=='shopify' else None)
@@ -51,9 +53,10 @@ class Worker:
                 authoritative_prefix='gid://shopify/' if site['platform']=='shopify' else None)
             if partial:
                 self.store.update(site['id'],status='partial',error='Some pages were unavailable or the scan limit was reached. Previous content was retained; inspect the scan report.')
-            return report | {'documents':len(docs),'ai_configured':self.ai.configured}
+            return report | {'documents':len(docs),'excluded':received-len(docs),'ai_configured':self.ai.configured}
         if job['kind']=='ingest':
             docs = validate_documents(site,job['payload'].get('documents',[]))
+            docs = self.store.filter_excluded(site['id'],docs)
             self.store.retire_documents(site['id'],docs,replace=bool(job['payload'].get('replace')),deleted=job['payload'].get('deleted',[]))
             self.store.save_documents(site['id'],self.ai.prepare(self.store,site['id'],docs),
                                       replace=bool(job['payload'].get('replace')),deleted=job['payload'].get('deleted',[]))
@@ -61,6 +64,7 @@ class Worker:
         if job['kind']=='embed':
             with self.store.db() as c:
                 docs = [dict(r) for r in c.execute('SELECT * FROM documents WHERE site_id=?',(site['id'],))]
+            docs = self.store.filter_excluded(site['id'],docs)
             self.store.save_documents(site['id'],self.ai.prepare(self.store,site['id'],docs))
             return {'documents':len(docs),'ai_configured':self.ai.configured}
         if job['kind']=='install_widget':

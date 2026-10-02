@@ -212,6 +212,8 @@ class Handler(BaseHTTPRequestHandler):
             site = self.app.store.verify_ingest(site_id,value[7:] if value.startswith('Bearer ') else '')
             if site['platform']!='wordpress':
                 raise Problem('This endpoint is for the WordPress plugin.')
+            if path=='/api/plugin/exclusions' and method=='GET':
+                return self.reply({'documents':[d['id'] for d in self.app.store.excluded_documents(site_id)]})
             if path=='/api/plugin/status' and method=='GET':
                 return self.reply(self.app.store.get_site(site_id))
             if path=='/api/plugin/sync' and method=='POST':
@@ -317,7 +319,12 @@ class Handler(BaseHTTPRequestHandler):
                     if action=='preview':
                         return self.reply(self.app.store.document_preview(site_id,q.get('document','')))
                     if action=='documents':
-                        return self.reply({'documents':self.app.store.documents(site_id)})
+                        documents=self.app.store.documents(site_id)
+                        stale_after=72*3600 if site['platform']=='wordpress' else max(18*3600,self.app.worker.refresh_seconds*3)
+                        now=time.time()
+                        for document in documents:
+                            document['fresh']=now-document['updated']<=stale_after
+                        return self.reply({'documents':documents,'excluded':self.app.store.excluded_documents(site_id),'stale_after_seconds':stale_after,'truncated':len(documents)>=1000})
                     if action=='jobs':
                         return self.reply({'jobs':self.app.store.jobs(site_id)})
                     if not action:
@@ -345,6 +352,22 @@ class Handler(BaseHTTPRequestHandler):
                                 raise Problem('Use an HTTPS contact URL or a mailto email address.')
                         self.app.store.save_appearance(site_id,value)
                         return self.reply({'saved':True})
+                    if action in ('exclude','include'):
+                        if set(b)!={'document'}:
+                            raise Problem('Send one document ID.')
+                        doc_id=b.get('document')
+                        if not isinstance(doc_id,str):
+                            raise Problem('Choose a valid page.')
+                        if action=='exclude':
+                            self.app.store.exclude_document(site_id,doc_id)
+                            return self.reply({'excluded':True})
+                        if site['platform']!='wordpress' and not site.get('credentials',{}).get('access_token'):
+                            raise Problem('Reconnect this platform before restoring and refreshing the page.',409)
+                        self.app.store.include_document(site_id,doc_id)
+                        if site['platform']=='wordpress':
+                            return self.reply({'included':True,'refresh_required':True})
+                        job_id=self.app.store.enqueue(site_id,'scan')
+                        return self.reply({'included':True,'refresh_required':False,'job_id':job_id},202)
                     if action=='test':
                         self.app.test_limit.check(site_id)
                         question,language = b.get('message',''),b.get('language','auto')
